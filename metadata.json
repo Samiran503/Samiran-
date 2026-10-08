@@ -1,0 +1,6 @@
+{
+  "name": "ZEEMBA COSMETICS",
+  "description": "Beauty that feels like you. Premium Indian cosmetics, skincare, and beauty essentials with real-time shopping, secure checkout, and full store management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

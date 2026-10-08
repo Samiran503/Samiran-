@@ -1,0 +1,189 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitives
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == "samiranhajong617@gmail.com" && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Entity Validators
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.category is string && data.category.size() <= 100 &&
+             data.sellingPrice is number && data.sellingPrice >= 0 &&
+             data.stock is number && data.stock >= 0 &&
+             data.isActive is bool;
+    }
+
+    function isValidCategory(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.slug is string && data.slug.size() <= 100 &&
+             data.isActive is bool;
+    }
+
+    function isValidOrder(data) {
+      return data.customerName is string && data.customerName.size() > 0 && data.customerName.size() <= 150 &&
+             data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 20 &&
+             data.address is string && data.address.size() > 0 && data.address.size() <= 300 &&
+             data.pincode is string && data.pincode.size() >= 4 && data.pincode.size() <= 12 &&
+             data.items is list && data.items.size() > 0 && data.items.size() <= 100 &&
+             data.total is number && data.total >= 0 &&
+             data.orderStatus is string && data.orderStatus.size() <= 50;
+    }
+
+    function isValidReview(data) {
+      return data.productId is string && data.productId.size() <= 128 &&
+             data.customerId is string && data.customerId == request.auth.uid &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() > 0 && data.comment.size() <= 2000;
+    }
+
+    function isValidOffer(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 150 &&
+             data.discountType is string && data.discountType.size() <= 20 &&
+             data.discountValue is number && data.discountValue >= 0 &&
+             data.isActive is bool;
+    }
+
+    // Products Collection
+    match /products/{productId} {
+      allow get: if isValidId(productId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      allow update: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // Categories Collection
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming());
+      allow update: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming());
+      allow delete: if isAdmin() && isValidId(categoryId);
+    }
+
+    // Orders Collection
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && (isAdmin() || (isSignedIn() && existing().customerId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.customerId == request.auth.uid);
+      allow create: if isValidId(orderId) && isValidOrder(incoming()) && (
+        !isSignedIn() || incoming().customerId == request.auth.uid || isAdmin()
+      );
+      allow update: if isAdmin() && isValidId(orderId) && isValidOrder(incoming());
+      allow delete: if isAdmin() && isValidId(orderId);
+    }
+
+    // Users Collection (Profile)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId);
+      allow update: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Cart Collection (1 per user)
+    match /carts/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId);
+      allow update: if isValidId(userId) && isOwner(userId);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+    }
+
+    // Wishlist Collection (1 per user)
+    match /wishlists/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId);
+      allow update: if isValidId(userId) && isOwner(userId);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+    }
+
+    // Offers & Coupons Collection
+    match /offers/{offerId} {
+      allow get: if isValidId(offerId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(offerId) && isValidOffer(incoming());
+      allow update: if isAdmin() && isValidId(offerId) && isValidOffer(incoming());
+      allow delete: if isAdmin() && isValidId(offerId);
+    }
+
+    // Reviews Collection
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId);
+      allow list: if true;
+      allow create: if isSignedIn() && isValidId(reviewId) && isValidReview(incoming());
+      allow update: if isAdmin() || (isSignedIn() && existing().customerId == request.auth.uid && isValidReview(incoming()));
+      allow delete: if isAdmin() || (isSignedIn() && existing().customerId == request.auth.uid);
+    }
+
+    // Homepage CMS Collection
+    match /homepage/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if true;
+      allow write: if isAdmin() && isValidId(docId);
+    }
+
+    // Settings Collection
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if true;
+      allow write: if isAdmin() && isValidId(settingId);
+    }
+
+    // Analytics Events (Client writes, Admin reads)
+    match /analyticsEvents/{eventId} {
+      allow get: if isAdmin() && isValidId(eventId);
+      allow list: if isAdmin();
+      allow create: if isValidId(eventId) && incoming().eventName is string && incoming().eventName.size() <= 100;
+      allow update, delete: if isAdmin() && isValidId(eventId);
+    }
+
+    // Admin Activity Logs (Append-only by Admin, read by Admin)
+    match /adminActivityLogs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin() && isValidId(logId) && incoming().adminEmail is string;
+      allow update, delete: if false; // Append-only audit log
+    }
+
+    // Admin Roles Collection
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow write: if isSignedIn() && (
+        (request.auth.token.email == "samiranhajong617@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+  }
+}
